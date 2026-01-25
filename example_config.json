@@ -10,5 +10,9 @@
     "reader_output_port": 5555,
     "decimator_output_port": 5556,
     "hwm": 10
+  },
+  "tag": {
+    "pulse_width_ms": 15,
+    "pulse_period_ms": 2000
   }
 }

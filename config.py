@@ -26,6 +26,10 @@ class PulseDetectConfig:
             'reader_output_port': 5555,     # Airspy reader output port
             'decimator_output_port': 5556,  # Decimator output port
             'hwm': 10,                      # High water mark for queue
+        },
+        'tag': {
+            'pulse_width_ms': 15,           # Pulse width in milliseconds
+            'pulse_period_ms': 2000,        # Pulse period in milliseconds
         }
     }
 
@@ -44,7 +48,8 @@ class PulseDetectConfig:
         # Deep copy defaults
         self.config = {
             'airspy': self.DEFAULTS['airspy'].copy(),
-            'zmq': self.DEFAULTS['zmq'].copy()
+            'zmq': self.DEFAULTS['zmq'].copy(),
+            'tag': self.DEFAULTS['tag'].copy()
         }
         if config_dict:
             self.update(config_dict)
@@ -62,6 +67,9 @@ class PulseDetectConfig:
         # Update zmq settings
         if 'zmq' in config_dict:
             self.config['zmq'].update(config_dict['zmq'])
+        # Update tag settings
+        if 'tag' in config_dict:
+            self.config['tag'].update(config_dict['tag'])
         self._validate()
 
     def _validate(self) -> None:
@@ -113,6 +121,23 @@ class PulseDetectConfig:
         hwm = self.config['zmq']['hwm']
         if not (1 <= hwm <= 10000):
             raise ValueError(f"Invalid zmq.hwm: {hwm}. Must be 1-10000")
+
+        # Validate pulse width
+        pulse_width = self.config['tag']['pulse_width_ms']
+        if not (0.001 <= pulse_width <= 10000):
+            raise ValueError(f"Invalid tag.pulse_width_ms: {pulse_width}. Must be 0.001-10000")
+
+        # Validate pulse period
+        pulse_period = self.config['tag']['pulse_period_ms']
+        if not (0.1 <= pulse_period <= 100000):
+            raise ValueError(f"Invalid tag.pulse_period_ms: {pulse_period}. Must be 0.1-100000")
+
+        # Validate pulse period > pulse width
+        if pulse_period <= pulse_width:
+            raise ValueError(
+                f"Invalid tag configuration: pulse_period_ms ({pulse_period}) must be "
+                f"greater than pulse_width_ms ({pulse_width})"
+            )
 
     @classmethod
     def from_file(cls, filepath: str) -> 'PulseDetectConfig':
@@ -186,10 +211,19 @@ class PulseDetectConfig:
         """Get ZeroMQ high water mark."""
         return self.config['zmq']['hwm']
 
+    def get_pulse_width_ms(self) -> float:
+        """Get pulse width in milliseconds."""
+        return self.config['tag']['pulse_width_ms']
+
+    def get_pulse_period_ms(self) -> float:
+        """Get pulse period in milliseconds."""
+        return self.config['tag']['pulse_period_ms']
+
     def __str__(self) -> str:
         """Return string representation of configuration."""
         airspy = self.config['airspy']
         zmq = self.config['zmq']
+        tag = self.config['tag']
         lines = [
             "Capture Configuration:",
             "  Airspy HF+ Settings:",
@@ -202,6 +236,9 @@ class PulseDetectConfig:
             f"    Reader Output Port: {zmq['reader_output_port']}",
             f"    Decimator Output Port: {zmq['decimator_output_port']}",
             f"    HWM: {zmq['hwm']}",
+            "  Tag Settings:",
+            f"    Pulse Width: {tag['pulse_width_ms']} ms",
+            f"    Pulse Period: {tag['pulse_period_ms']} ms",
         ]
         return '\n'.join(lines)
 
