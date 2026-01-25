@@ -89,85 +89,57 @@ class AirspyHFSimulator:
         Returns:
             Complex numpy array of IQ samples
         """
-        if self.signal_mode == 'noise':
-            # Generate Gaussian noise
+        if self.signal_mode == 'no-pulse':
+            # Generate Gaussian noise only
             i_samples = np.random.normal(0, 0.1, self.samples_per_block).astype(np.float32)
             q_samples = np.random.normal(0, 0.1, self.samples_per_block).astype(np.float32)
             samples = i_samples + 1j * q_samples
 
-        elif self.signal_mode == 'tone':
-            # Generate a single tone at 10 kHz offset from center
-            tone_freq = 10000.0  # 10 kHz
-            t = np.arange(self.samples_per_block, dtype=np.float32) / self.sample_rate
-            t += self.phase_accumulator
-            phase = 2 * np.pi * tone_freq * t
-            samples = (0.3 * np.exp(1j * phase)).astype(np.complex64)
-
-            # Add small amount of noise
-            noise = np.random.normal(0, 0.02, self.samples_per_block).astype(np.float32) + \
-                    1j * np.random.normal(0, 0.02, self.samples_per_block).astype(np.float32)
-            samples += noise
-
-            # Update phase accumulator for continuity
-            self.phase_accumulator = t[-1] + 1.0 / self.sample_rate
-
-        elif self.signal_mode == 'pulse':
-            # Generate pulses at regular intervals
-            current_time = self.sample_count / self.sample_rate
-
+        elif self.signal_mode == 'dirty-pulse':
+            # Generate pulses at regular intervals with noise
             # Start with noise floor
             i_samples = np.random.normal(0, 0.05, self.samples_per_block).astype(np.float32)
             q_samples = np.random.normal(0, 0.05, self.samples_per_block).astype(np.float32)
             samples = i_samples + 1j * q_samples
 
-            # Add pulse if it's time
-            if current_time - self.last_pulse_time >= self.pulse_interval:
-                pulse_samples = int(self.pulse_duration * self.sample_rate)
-                if pulse_samples < self.samples_per_block:
-                    # Create a rectangular pulse envelope
-                    pulse_env = np.zeros(self.samples_per_block, dtype=np.float32)
-                    pulse_env[:pulse_samples] = 1.0  # Flat rectangular pulse
+            # Calculate pulse timing for each sample in this block
+            pulse_samples_total = int(self.pulse_duration * self.sample_rate)
 
-                    # Add baseband pulse (no carrier)
-                    tone_freq = 0.0  # Baseband pulse
-                    t = np.arange(self.samples_per_block, dtype=np.float32) / self.sample_rate
-                    phase = 2 * np.pi * tone_freq * t
-                    pulse_signal = 0.5 * pulse_env * np.exp(1j * phase)
-                    samples += pulse_signal.astype(np.complex64)
+            for i in range(self.samples_per_block):
+                current_time = (self.sample_count + i) / self.sample_rate
+                time_since_last_pulse = current_time - self.last_pulse_time
 
+                # Check if we should start a new pulse
+                if time_since_last_pulse >= self.pulse_interval:
                     self.last_pulse_time = current_time
 
-        elif self.signal_mode == 'mixed':
-            # Mix of continuous tone + periodic pulses + noise
-            # Continuous tone at 10 kHz
-            tone_freq = 10000.0
-            t = np.arange(self.samples_per_block, dtype=np.float32) / self.sample_rate
-            t += self.phase_accumulator
-            phase = 2 * np.pi * tone_freq * t
-            samples = (0.2 * np.exp(1j * phase)).astype(np.complex64)
+                # Check if we're within a pulse
+                time_in_pulse = current_time - self.last_pulse_time
+                if 0 <= time_in_pulse < self.pulse_duration:
+                    # Add pulse signal (baseband, no carrier)
+                    samples[i] += 0.5
 
-            # Add noise
-            noise = np.random.normal(0, 0.05, self.samples_per_block).astype(np.float32) + \
-                    1j * np.random.normal(0, 0.05, self.samples_per_block).astype(np.float32)
-            samples += noise
+        elif self.signal_mode == 'clean-pulse':
+            # Generate pulses at regular intervals with no noise
+            # Start with zero (no noise)
+            samples = np.zeros(self.samples_per_block, dtype=np.complex64)
 
-            # Add pulse if it's time
-            current_time = self.sample_count / self.sample_rate
-            if current_time - self.last_pulse_time >= self.pulse_interval:
-                pulse_samples = int(self.pulse_duration * self.sample_rate)
-                if pulse_samples < self.samples_per_block:
-                    pulse_env = np.zeros(self.samples_per_block, dtype=np.float32)
-                    pulse_env[:pulse_samples] = 1.0  # Flat rectangular pulse
+            # Calculate pulse timing for each sample in this block
+            pulse_samples_total = int(self.pulse_duration * self.sample_rate)
 
-                    pulse_freq = 0.0  # Baseband pulse
-                    t2 = np.arange(self.samples_per_block, dtype=np.float32) / self.sample_rate
-                    phase2 = 2 * np.pi * pulse_freq * t2
-                    pulse_signal = 0.4 * pulse_env * np.exp(1j * phase2)
-                    samples += pulse_signal.astype(np.complex64)
+            for i in range(self.samples_per_block):
+                current_time = (self.sample_count + i) / self.sample_rate
+                time_since_last_pulse = current_time - self.last_pulse_time
 
+                # Check if we should start a new pulse
+                if time_since_last_pulse >= self.pulse_interval:
                     self.last_pulse_time = current_time
 
-            self.phase_accumulator = t[-1] + 1.0 / self.sample_rate
+                # Check if we're within a pulse
+                time_in_pulse = current_time - self.last_pulse_time
+                if 0 <= time_in_pulse < self.pulse_duration:
+                    # Add pulse signal (baseband, no carrier)
+                    samples[i] += 0.5
 
         else:
             raise ValueError(f"Unknown signal mode: {self.signal_mode}")
@@ -305,10 +277,10 @@ def main():
     parser.add_argument(
         '-m', '--mode',
         type=str,
-        choices=['noise', 'tone', 'pulse', 'mixed'],
-        default='pulse',
-        help='Signal generation mode: noise (white noise), tone (single carrier), '
-             'pulse (periodic pulses), mixed (tone + pulses + noise)'
+        choices=['no-pulse', 'dirty-pulse', 'clean-pulse'],
+        default='dirty-pulse',
+        help='Signal generation mode: no-pulse (noise only), '
+             'dirty-pulse (pulse + noise), clean-pulse (pulse only, no noise)'
     )
 
     args = parser.parse_args()

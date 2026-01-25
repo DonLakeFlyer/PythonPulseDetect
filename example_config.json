@@ -8,8 +8,11 @@
   },
   "zmq": {
     "reader_output_port": 5555,
-    "decimator_output_port": 5556,
     "hwm": 10
+  },
+  "decimator": {
+    "output_port": 5556,
+    "output_sample_rate_hz": 2000
   },
   "tag": {
     "pulse_width_ms": 15,

@@ -24,8 +24,11 @@ class PulseDetectConfig:
         },
         'zmq': {
             'reader_output_port': 5555,     # Airspy reader output port
-            'decimator_output_port': 5556,  # Decimator output port
             'hwm': 10,                      # High water mark for queue
+        },
+        'decimator': {
+            'output_port': 5556,            # Decimator output port
+            'output_sample_rate_hz': 2000,  # Decimated output sample rate (2 kHz)
         },
         'tag': {
             'pulse_width_ms': 15,           # Pulse width in milliseconds
@@ -49,6 +52,7 @@ class PulseDetectConfig:
         self.config = {
             'airspy': self.DEFAULTS['airspy'].copy(),
             'zmq': self.DEFAULTS['zmq'].copy(),
+            'decimator': self.DEFAULTS['decimator'].copy(),
             'tag': self.DEFAULTS['tag'].copy()
         }
         if config_dict:
@@ -67,6 +71,9 @@ class PulseDetectConfig:
         # Update zmq settings
         if 'zmq' in config_dict:
             self.config['zmq'].update(config_dict['zmq'])
+        # Update decimator settings
+        if 'decimator' in config_dict:
+            self.config['decimator'].update(config_dict['decimator'])
         # Update tag settings
         if 'tag' in config_dict:
             self.config['tag'].update(config_dict['tag'])
@@ -112,15 +119,20 @@ class PulseDetectConfig:
         if not (1024 <= reader_port <= 65535):
             raise ValueError(f"Invalid zmq.reader_output_port: {reader_port}. Must be 1024-65535")
 
-        # Validate ZeroMQ decimator output port
-        decimator_port = self.config['zmq']['decimator_output_port']
-        if not (1024 <= decimator_port <= 65535):
-            raise ValueError(f"Invalid zmq.decimator_output_port: {decimator_port}. Must be 1024-65535")
-
         # Validate HWM
         hwm = self.config['zmq']['hwm']
         if not (1 <= hwm <= 10000):
             raise ValueError(f"Invalid zmq.hwm: {hwm}. Must be 1-10000")
+
+        # Validate decimator output port
+        decimator_port = self.config['decimator']['output_port']
+        if not (1024 <= decimator_port <= 65535):
+            raise ValueError(f"Invalid decimator.output_port: {decimator_port}. Must be 1024-65535")
+
+        # Validate decimator output sample rate
+        decimator_sr = self.config['decimator']['output_sample_rate_hz']
+        if not (1 <= decimator_sr <= 1000000):
+            raise ValueError(f"Invalid decimator.output_sample_rate_hz: {decimator_sr}. Must be 1-1000000")
 
         # Validate pulse width
         pulse_width = self.config['tag']['pulse_width_ms']
@@ -204,8 +216,12 @@ class PulseDetectConfig:
         return self.config['zmq']['reader_output_port']
 
     def get_decimator_output_port(self) -> int:
-        """Get ZeroMQ decimator output port number."""
-        return self.config['zmq']['decimator_output_port']
+        """Get decimator output port number."""
+        return self.config['decimator']['output_port']
+
+    def get_decimator_output_sample_rate_hz(self) -> int:
+        """Get decimator output sample rate in Hz."""
+        return self.config['decimator']['output_sample_rate_hz']
 
     def get_zmq_hwm(self) -> int:
         """Get ZeroMQ high water mark."""
@@ -223,6 +239,7 @@ class PulseDetectConfig:
         """Return string representation of configuration."""
         airspy = self.config['airspy']
         zmq = self.config['zmq']
+        decimator = self.config['decimator']
         tag = self.config['tag']
         lines = [
             "Capture Configuration:",
@@ -234,8 +251,10 @@ class PulseDetectConfig:
             f"    Attenuation: {airspy['attenuation']} dB",
             "  ZeroMQ Settings:",
             f"    Reader Output Port: {zmq['reader_output_port']}",
-            f"    Decimator Output Port: {zmq['decimator_output_port']}",
             f"    HWM: {zmq['hwm']}",
+            "  Decimator Settings:",
+            f"    Output Port: {decimator['output_port']}",
+            f"    Output Sample Rate: {decimator['output_sample_rate_hz']} Hz",
             "  Tag Settings:",
             f"    Pulse Width: {tag['pulse_width_ms']} ms",
             f"    Pulse Period: {tag['pulse_period_ms']} ms",
