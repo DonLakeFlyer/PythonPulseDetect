@@ -100,7 +100,7 @@ Example configuration (`capture_config.json`):
 
 For complete defaults, validation ranges, and field meanings, see `config.py` (`PulseDetectConfig.DEFAULTS` and `_validate`).
 
-### 2. Run the Capture Pipeline
+### 2. Capture Training Data
 
 Start here after creating config. This runs reader + decimator + capture together and auto-shuts down when capture targets are reached.
 
@@ -127,7 +127,7 @@ python3 run_capture_pipeline.py \
   --capture-stream-logs
 ```
 
-### 3. Prepare Runtime Config for Inference
+### 3. Prepare Runtime Config for Inference based on Training Data
 
 After training a model, run calibration and generate runtime config in one command:
 
