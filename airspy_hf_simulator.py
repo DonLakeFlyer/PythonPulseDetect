@@ -250,7 +250,7 @@ def main():
     parser.add_argument(
         '-c', '--config',
         help='JSON configuration file',
-        default=None
+        default='capture_config.json'
     )
 
     parser.add_argument(
@@ -286,16 +286,12 @@ def main():
     args = parser.parse_args()
 
     # Load configuration
-    if args.config:
-        try:
-            config = PulseDetectConfig.from_file(args.config)
-            print(f"Loaded configuration from {args.config}\n")
-        except Exception as e:
-            print(f"Error loading config file: {e}")
-            return 1
-    else:
-        config = PulseDetectConfig()
-        print("Using default configuration\n")
+    try:
+        config = PulseDetectConfig.from_file(args.config)
+        print(f"Loaded configuration from {args.config}\n")
+    except Exception as e:
+        print(f"Error loading config file: {e}")
+        return 1
 
     # Override with command-line arguments
     overrides = {'airspy': {}, 'zmq': {}}

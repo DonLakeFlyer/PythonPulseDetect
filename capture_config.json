@@ -1,0 +1,21 @@
+{
+  "airspy": {
+    "sample_rate_hz": 768000,
+    "center_frequency_hz": 146000000,
+    "lna_gain": 1,
+    "agc": 0,
+    "attenuation": 0
+  },
+  "zmq": {
+    "reader_output_port": 5555,
+    "hwm": 10
+  },
+  "decimator": {
+    "output_port": 5556,
+    "output_sample_rate_hz": 2000
+  },
+  "tag": {
+    "pulse_width_ms": 15,
+    "pulse_period_ms": 2000
+  }
+}

@@ -20,7 +20,7 @@ from config import PulseDetectConfig
 class AirspyHFReader:
     """Manages Airspy HF+ device and ZeroMQ streaming."""
 
-    def __init__(self, config: PulseDetectConfig):
+    def __init__(self, config: PulseDetectConfig, stream_logs: bool = False):
         """
         Initialize the reader system.
 
@@ -28,6 +28,7 @@ class AirspyHFReader:
             config: PulseDetectConfig instance with device and ZeroMQ settings
         """
         self.config = config
+        self.stream_logs = stream_logs
         self.device = None
         self.zmq_context = None
         self.zmq_socket = None
@@ -37,6 +38,7 @@ class AirspyHFReader:
         self.sequence_number = 0
         self.send_attempts = 0
         self.send_failures = 0
+        self.last_overflow_log_count = 0
 
     def setup_zmq(self):
         """Initialize ZeroMQ publisher socket."""
@@ -128,6 +130,9 @@ class AirspyHFReader:
             return -1  # Stop streaming
 
         try:
+            if self.zmq_socket is None:
+                return -1
+
             # Get IQ samples as float32 array (interleaved I/Q)
             # Airspy HF+ provides float32 samples, 2 values per complex sample (I, Q)
             float_count = transfer.contents.sample_count * 2
@@ -160,11 +165,13 @@ class AirspyHFReader:
                 # Buffer full - data dropped
                 self.send_failures += 1
                 self.overflow_count += 1
-                print(f"⚠️  ZeroMQ send buffer FULL! Dropped message #{self.sequence_number} "
-                      f"({len(samples)} samples). Total overflows: {self.overflow_count}")
+                if self.overflow_count <= 3 or (self.overflow_count - self.last_overflow_log_count) >= 25:
+                    self.last_overflow_log_count = self.overflow_count
+                    print(f"⚠️  ZeroMQ send buffer FULL! Dropped message #{self.sequence_number} "
+                          f"({len(samples)} samples). Total overflows: {self.overflow_count}")
 
-            # Print status every 1M samples
-            if self.sample_count % 1000000 < len(samples):
+            # Optional status output while streaming
+            if self.stream_logs and self.sample_count % 10000000 < len(samples):
                 status = f"Streamed {self.sample_count / 1e6:.1f}M samples (seq={self.sequence_number})..."
                 if self.overflow_count > 0:
                     drop_rate = (self.send_failures / self.send_attempts) * 100
@@ -249,7 +256,7 @@ def main():
     parser.add_argument(
         '-c', '--config',
         help='JSON configuration file',
-        default=None
+        default='capture_config.json'
     )
 
     parser.add_argument(
@@ -297,19 +304,21 @@ def main():
         default=None
     )
 
+    parser.add_argument(
+        '--stream-logs',
+        action='store_true',
+        help='Enable periodic status logs while streaming (default: off)',
+    )
+
     args = parser.parse_args()
 
     # Load configuration
-    if args.config:
-        try:
-            config = PulseDetectConfig.from_file(args.config)
-            print(f"Loaded configuration from {args.config}\n")
-        except Exception as e:
-            print(f"Error loading config file: {e}")
-            return 1
-    else:
-        config = PulseDetectConfig()
-        print("Using default configuration\n")
+    try:
+        config = PulseDetectConfig.from_file(args.config)
+        print(f"Loaded configuration from {args.config}\n")
+    except Exception as e:
+        print(f"Error loading config file: {e}")
+        return 1
 
     # Override with command-line arguments
     overrides = {'airspy': {}, 'zmq': {}}
@@ -339,7 +348,7 @@ def main():
     print()
 
     # Run reader
-    reader = AirspyHFReader(config)
+    reader = AirspyHFReader(config, stream_logs=args.stream_logs)
     return reader.run()
 
 

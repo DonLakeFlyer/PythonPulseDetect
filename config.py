@@ -276,31 +276,21 @@ def create_default_config_file(filepath: str) -> None:
     config = PulseDetectConfig()
     config.to_file(filepath)
     print(f"Created default configuration file: {filepath}")
+    print()
+    print(config)
 
 
 if __name__ == '__main__':
-    # Example usage and testing
     import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == 'create':
-        # Create default config file
-        filename = sys.argv[2] if len(sys.argv) > 2 else 'capture_config.json'
+    if len(sys.argv) == 1:
+        filename = 'capture_config.json'
         create_default_config_file(filename)
-    else:
-        # Test configuration
-        print("Testing configuration module...\n")
+        sys.exit(0)
 
-        # Test default config
-        config = PulseDetectConfig()
-        print(config)
-        print()
+    if sys.argv[1] != 'create':
+        print("Usage: python3 config.py [create [output_file]]")
+        sys.exit(1)
 
-        # Test custom config
-        custom = PulseDetectConfig({
-            'airspy': {
-                'sample_rate_hz': 912000,
-                'center_frequency_hz': 100000000,
-                'lna_gain': 0,
-            }
-        })
-        print(custom)
+    filename = sys.argv[2] if len(sys.argv) > 2 else 'capture_config.json'
+    create_default_config_file(filename)
