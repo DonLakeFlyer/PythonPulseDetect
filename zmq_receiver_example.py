@@ -64,6 +64,8 @@ class DataReceiver:
         try:
             while self.running:
                 # Receive single-part message (sequence number + data)
+                if self.socket is None:
+                    raise RuntimeError("ZeroMQ socket not initialized")
                 message_bytes = self.socket.recv()
 
                 # Extract sequence number (first 8 bytes)

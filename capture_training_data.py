@@ -18,7 +18,7 @@ from typing import Optional, List
 import numpy as np
 import zmq
 
-from config import PulseDetectConfig
+from submodules.AirspyTools.airspy_tools_config import AirspyToolsConfig
 
 
 PROFILE_DEFAULTS = {
@@ -28,14 +28,14 @@ PROFILE_DEFAULTS = {
             "hop_ms": 64.0,
             "duration": 0.0,
             "max_windows": 400,
-            "trigger_z": 4.5,
+            "trigger_z": 0.65,
             "trigger_refractory_ms": 80.0,
         },
         "negative": {
             "window_ms": 64.0,
             "hop_ms": 64.0,
             "duration": 0.0,
-            "max_windows": 800,
+            "max_windows": 600,
             "trigger_z": None,
             "trigger_refractory_ms": 80.0,
         },
@@ -46,14 +46,14 @@ PROFILE_DEFAULTS = {
             "hop_ms": 64.0,
             "duration": 0.0,
             "max_windows": 200,
-            "trigger_z": 4.5,
+            "trigger_z": 0.65,
             "trigger_refractory_ms": 80.0,
         },
         "negative": {
             "window_ms": 64.0,
             "hop_ms": 64.0,
             "duration": 0.0,
-            "max_windows": 400,
+            "max_windows": 300,
             "trigger_z": None,
             "trigger_refractory_ms": 80.0,
         },
@@ -64,14 +64,14 @@ PROFILE_DEFAULTS = {
             "hop_ms": 64.0,
             "duration": 0.0,
             "max_windows": 1200,
-            "trigger_z": 4.5,
+            "trigger_z": 0.65,
             "trigger_refractory_ms": 80.0,
         },
         "negative": {
             "window_ms": 64.0,
             "hop_ms": 64.0,
             "duration": 0.0,
-            "max_windows": 2400,
+            "max_windows": 1800,
             "trigger_z": None,
             "trigger_refractory_ms": 80.0,
         },
@@ -93,6 +93,7 @@ class TrainingDataCapture:
         port: int,
         hwm: int,
         stream_logs: bool,
+        trigger_debug: bool,
         window_ms: float,
         hop_ms: float,
         duration_s: float,
@@ -111,6 +112,7 @@ class TrainingDataCapture:
         self.port = port
         self.hwm = hwm
         self.stream_logs = stream_logs
+        self.trigger_debug = trigger_debug
         self.window_ms = window_ms
         self.hop_ms = hop_ms
         self.duration_s = duration_s
@@ -130,10 +132,7 @@ class TrainingDataCapture:
         self.trigger_release_z = max(1.0, (self.trigger_z or 3.0) * 0.5)
         self.rearm_z = max(0.5, self.trigger_release_z * 0.6)
         self.rearm_required_samples = max(3, self.pulse_width_samples)
-        self.min_inter_pulse_samples = max(
-            self.refractory_samples,
-            max(1, int(round(self.pulse_period_samples * 0.5))),
-        )
+        self.min_inter_pulse_samples = self.refractory_samples
 
         # Moving-average power + moving-std detector settings
         self.avg_power_window_samples = max(3, self.pulse_width_samples // 2)
@@ -172,6 +171,13 @@ class TrainingDataCapture:
         self.stop_reason = "completed"
         self.last_trigger_sample_index: Optional[int] = None
         self.last_trigger_wall_time_s: Optional[float] = None
+
+        self.trigger_stat_max_z = float("-inf")
+        self.trigger_stat_baseline_blocked = 0
+        self.trigger_stat_unarmed_blocked = 0
+        self.trigger_stat_trigger_crossings = 0
+        self.trigger_stat_pulse_candidates = 0
+        self.trigger_stat_refractory_blocked = 0
 
         self.ewma_mean = 0.0
         self.ewma_var = 1e-3
@@ -352,23 +358,31 @@ class TrainingDataCapture:
             mean_p = self.std_sum / n
             var_p = max(self.std_sumsq / n - mean_p * mean_p, 1e-12)
             moving_std = np.sqrt(var_p)
-
-            if not self.in_pulse:
-                self.ewma_mean = (1.0 - self.ewma_alpha) * self.ewma_mean + self.ewma_alpha * moving_std
-                delta = moving_std - self.ewma_mean
-                self.ewma_var = (1.0 - self.ewma_alpha) * self.ewma_var + self.ewma_alpha * (delta * delta)
-                self.baseline_samples += 1
+            trigger_metric = avg_power
 
             baseline_std = np.sqrt(max(self.ewma_var, 1e-12))
-            z = (moving_std - self.ewma_mean) / baseline_std
+            z = (trigger_metric - self.ewma_mean) / baseline_std
+
+            if not self.in_pulse:
+                warmup_mode = self.baseline_samples < self.min_baseline_samples
+                can_update_baseline = warmup_mode or (z < trigger_z)
+                if can_update_baseline:
+                    self.ewma_mean = (1.0 - self.ewma_alpha) * self.ewma_mean + self.ewma_alpha * trigger_metric
+                    delta = trigger_metric - self.ewma_mean
+                    self.ewma_var = (1.0 - self.ewma_alpha) * self.ewma_var + self.ewma_alpha * (delta * delta)
+                    self.baseline_samples += 1
+            if z > self.trigger_stat_max_z:
+                self.trigger_stat_max_z = float(z)
 
             global_index = base_global_index + i
 
             if not self.in_pulse:
                 if self.baseline_samples < self.min_baseline_samples:
+                    self.trigger_stat_baseline_blocked += 1
                     continue
 
                 if not self.detector_armed:
+                    self.trigger_stat_unarmed_blocked += 1
                     if z <= self.rearm_z:
                         self.rearm_below_count += 1
                         if self.rearm_below_count >= self.rearm_required_samples:
@@ -378,6 +392,7 @@ class TrainingDataCapture:
                     continue
 
                 if z >= trigger_z:
+                    self.trigger_stat_trigger_crossings += 1
                     self.in_pulse = True
                     self.current_pulse_start_index = global_index
                     self.current_pulse_peak_index = global_index
@@ -393,9 +408,9 @@ class TrainingDataCapture:
             pulse_too_long = pulse_len >= self.max_pulse_samples
 
             if pulse_ended or pulse_too_long:
-                valid_width = self.min_pulse_samples <= pulse_len <= self.max_pulse_samples
                 valid_peak = self.current_pulse_peak_z >= trigger_z
-                if valid_width and valid_peak:
+                if valid_peak:
+                    self.trigger_stat_pulse_candidates += 1
                     self.pending_trigger_indices.append(self.current_pulse_peak_index)
                     self.detector_armed = False
                     self.rearm_below_count = 0
@@ -412,6 +427,7 @@ class TrainingDataCapture:
             if self.last_trigger_sample_index is not None:
                 gap = center - self.last_trigger_sample_index
                 if gap < self.min_inter_pulse_samples:
+                    self.trigger_stat_refractory_blocked += 1
                     continue
 
             start = center - self.pre_trigger_samples
@@ -458,12 +474,12 @@ class TrainingDataCapture:
         print(f"Total planned capture time: {self._planned_total_time_text()}")
         if self.trigger_z is not None:
             print(f"Mode: trigger (moving-std tolerance >= {self.trigger_z})")
+            print(f"Trigger diagnostics logs: {'enabled' if self.trigger_debug else 'disabled'}")
             print(
-                f"Trigger pulse-width gate: expected={self.pulse_width_ms:.1f}ms "
-                f"valid=[{self.min_pulse_samples}..{self.max_pulse_samples}] samples"
+                "Trigger width gate: disabled (accepting spikes of any width)"
             )
             print(
-                f"Inter-pulse dedupe gate: min_gap={self.min_inter_pulse_samples} samples "
+                f"Trigger spacing gate (refractory only): min_gap={self.min_inter_pulse_samples} samples "
                 f"({1000.0 * self.min_inter_pulse_samples / self.sample_rate_hz:.1f}ms)"
             )
             print(
@@ -492,6 +508,8 @@ class TrainingDataCapture:
                     print("✅ Recommended capture target reached. Stopping automatically.")
                     break
 
+                if self.socket is None:
+                    raise RuntimeError("ZeroMQ socket not initialized")
                 message = self.socket.recv()
                 self.messages += 1
 
@@ -516,7 +534,7 @@ class TrainingDataCapture:
 
                 self._log_time_remaining_if_due()
 
-                if self.stream_logs and self.messages % self.status_interval_messages == 0:
+                if (self.stream_logs or self.trigger_debug) and self.messages % self.status_interval_messages == 0:
                     elapsed = max(time.time() - self.start_time, 1e-6)
                     rate = self.total_samples_received / elapsed
                     progress_parts = []
@@ -532,9 +550,22 @@ class TrainingDataCapture:
                         remaining = max(0.0, self.duration_s - elapsed)
                         progress_parts.append(f"time={elapsed:.0f}s/{self.duration_s:.0f}s ({dur_pct:.1f}%) rem={remaining:.0f}s")
 
+                    trigger_diag = ""
+                    if self.trigger_z is not None:
+                        baseline_pct = min(100.0, 100.0 * self.baseline_samples / max(self.min_baseline_samples, 1))
+                        max_z_text = "n/a" if not np.isfinite(self.trigger_stat_max_z) else f"{self.trigger_stat_max_z:.2f}"
+                        trigger_diag = (
+                            f" | trig: z_th={self.trigger_z:.2f} max_z={max_z_text} "
+                            f"baseline={baseline_pct:.1f}% crossings={self.trigger_stat_trigger_crossings} "
+                            f"candidates={self.trigger_stat_pulse_candidates} accepted={self.trigger_windows_saved} "
+                            f"blocked_baseline={self.trigger_stat_baseline_blocked} "
+                            f"blocked_unarmed={self.trigger_stat_unarmed_blocked} "
+                            f"blocked_refractory={self.trigger_stat_refractory_blocked}"
+                        )
+
                     print(
                         f"Messages={self.messages} {' | '.join(progress_parts)} "
-                        f"drops={self.seq_drops} stream_rate={rate:.1f} sps"
+                        f"drops={self.seq_drops} stream_rate={rate:.1f} sps{trigger_diag}"
                     )
 
         finally:
@@ -550,6 +581,18 @@ class TrainingDataCapture:
         print(f"Samples received: {self.total_samples_received}")
         print(f"Windows saved: {self.windows_saved}")
         print(f"Detected pulses: {self.trigger_windows_saved}")
+        if self.trigger_z is not None:
+            max_z_text = "n/a" if not np.isfinite(self.trigger_stat_max_z) else f"{self.trigger_stat_max_z:.2f}"
+            print(
+                "Trigger diagnostics: "
+                f"z_th={self.trigger_z:.2f}, max_z={max_z_text}, "
+                f"crossings={self.trigger_stat_trigger_crossings}, "
+                f"candidates={self.trigger_stat_pulse_candidates}, "
+                f"accepted={self.trigger_windows_saved}, "
+                f"blocked_baseline={self.trigger_stat_baseline_blocked}, "
+                f"blocked_unarmed={self.trigger_stat_unarmed_blocked}, "
+                f"blocked_refractory={self.trigger_stat_refractory_blocked}"
+            )
         print(f"Manifest: {self.manifest_path}")
 
         return 0
@@ -577,6 +620,11 @@ def parse_args():
         "--stream-logs",
         action="store_true",
         help="Enable periodic capture progress logs while streaming (default: off)",
+    )
+    parser.add_argument(
+        "--trigger-debug",
+        action="store_true",
+        help="Enable periodic trigger diagnostics logs while streaming (default: off)",
     )
 
     parser.add_argument("--window-ms", type=float, default=None, help="Window length in milliseconds")
@@ -627,8 +675,8 @@ def resolve_capture_params(args: argparse.Namespace) -> dict:
     }
 
 
-def load_config(config_path: str) -> PulseDetectConfig:
-    return PulseDetectConfig.from_file(config_path)
+def load_config(config_path: str) -> AirspyToolsConfig:
+    return AirspyToolsConfig.from_file(config_path)
 
 
 def main():
@@ -659,6 +707,7 @@ def main():
         port=port,
         hwm=hwm,
         stream_logs=args.stream_logs,
+        trigger_debug=args.trigger_debug,
         window_ms=resolved["window_ms"],
         hop_ms=resolved["hop_ms"],
         duration_s=resolved["duration"],

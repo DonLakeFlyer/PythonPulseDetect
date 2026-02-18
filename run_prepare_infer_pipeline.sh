@@ -176,6 +176,30 @@ python3 make_infer_runtime_config.py \
   --model "${MODEL_PATH}" \
   --out "${RUNTIME_CONFIG}"
 
+echo "[3/3] Recording calibration metadata in config"
+python3 - "${CONFIG_FILE}" "${CRITERION}" "${THRESHOLD_REPORT}" "${RUNTIME_CONFIG}" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+
+config_path, criterion, threshold_report, runtime_config = sys.argv[1:5]
+
+with open(config_path, "r") as f:
+    cfg = json.load(f)
+
+training = cfg.setdefault("training", {})
+training["last_threshold_criterion"] = criterion
+training["last_threshold_report"] = threshold_report
+training["last_runtime_config"] = runtime_config
+training["last_prepared_utc"] = datetime.now(timezone.utc).isoformat()
+
+with open(config_path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+
+print(f"Updated {config_path} with training metadata (criterion={criterion})")
+PY
+
 echo "Done. Runtime config ready: ${RUNTIME_CONFIG}"
 echo "Run inference when ready:"
-echo "  python3 run_infer_pipeline.py"
+echo "  ./run_infer_pipeline.sh"

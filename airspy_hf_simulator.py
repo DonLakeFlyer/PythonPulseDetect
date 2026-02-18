@@ -14,18 +14,18 @@ import zmq
 import time
 from typing import Optional
 
-from config import PulseDetectConfig
+from submodules.AirspyTools.airspy_tools_config import AirspyToolsConfig
 
 
 class AirspyHFSimulator:
     """Simulates Airspy HF+ device and ZeroMQ streaming."""
 
-    def __init__(self, config: PulseDetectConfig, signal_mode: str = 'noise'):
+    def __init__(self, config: AirspyToolsConfig, signal_mode: str = 'noise'):
         """
         Initialize the simulator.
 
         Args:
-            config: PulseDetectConfig instance with device and ZeroMQ settings
+            config: AirspyToolsConfig instance with device and ZeroMQ settings
             signal_mode: Type of signal to generate ('noise', 'tone', 'pulse', 'mixed')
         """
         self.config = config
@@ -179,6 +179,8 @@ class AirspyHFSimulator:
                 # Send via ZeroMQ - non-blocking
                 self.send_attempts += 1
                 try:
+                    if self.zmq_socket is None:
+                        raise RuntimeError("ZeroMQ socket not initialized")
                     self.zmq_socket.send(message, zmq.NOBLOCK)
                 except zmq.Again:
                     # Buffer full - data dropped
@@ -287,7 +289,7 @@ def main():
 
     # Load configuration
     try:
-        config = PulseDetectConfig.from_file(args.config)
+        config = AirspyToolsConfig.from_file(args.config)
         print(f"Loaded configuration from {args.config}\n")
     except Exception as e:
         print(f"Error loading config file: {e}")

@@ -1,0 +1,3 @@
+[submodule "submodules/AirspyTools"]
+	path = submodules/AirspyTools
+	url = https://github.com/DonLakeFlyer/AirspyTools.git

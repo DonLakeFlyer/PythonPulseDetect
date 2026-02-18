@@ -10,7 +10,7 @@ import argparse
 import json
 from pathlib import Path
 
-from config import PulseDetectConfig
+from submodules.AirspyTools.airspy_tools_config import AirspyToolsConfig
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,7 +61,7 @@ def main() -> int:
     if "threshold" not in recommended:
         raise ValueError("Invalid threshold report: missing recommended.threshold")
 
-    config = PulseDetectConfig.from_file(args.config)
+    config = AirspyToolsConfig.from_file(args.config)
     port = args.port if args.port is not None else config.get_decimator_output_port()
     hwm = args.hwm if args.hwm is not None else config.get_zmq_hwm()
 

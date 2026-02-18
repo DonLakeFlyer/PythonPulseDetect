@@ -35,6 +35,9 @@ Python-based signal processing system for capturing IQ data from an Airspy HF+ s
 2. **Set up Python virtual environment and install dependencies:**
 
    ```bash
+  # Initialize submodules (required for AirspyTools)
+  git submodule update --init --recursive
+
    # Run the setup script
    ./setup_venv.sh
    ```
@@ -65,12 +68,16 @@ Python-based signal processing system for capturing IQ data from an Airspy HF+ s
 
 ## Usage
 
+Pipeline convenience scripts:
+- `./run_capture_pipeline.sh` wraps `run_capture_pipeline.py`
+- `./run_infer_pipeline.sh` wraps `run_infer_pipeline.py`
+
 ### 1. Create Configuration File
 
 Create a JSON configuration file (or use default settings):
 
 ```bash
-python3 config.py create capture_config.json
+python3 submodules/AirspyTools/airspy_tools_config.py create capture_config.json
 ```
 
 Example configuration (`capture_config.json`):
@@ -98,7 +105,7 @@ Example configuration (`capture_config.json`):
 }
 ```
 
-For complete defaults, validation ranges, and field meanings, see `config.py` (`PulseDetectConfig.DEFAULTS` and `_validate`).
+For complete defaults, validation ranges, and field meanings, see `submodules/AirspyTools/airspy_tools_config.py` (`AirspyToolsConfig.DEFAULTS` and `_validate`).
 
 ### 2. Capture Training Data
 
@@ -106,12 +113,12 @@ Start here after creating config. This runs reader + decimator + capture togethe
 
 ```bash
 # Quick positive capture
-python3 run_capture_pipeline.py \
+./run_capture_pipeline.sh \
   --label positive \
   --training-profile quick
 
 # Quick negative capture
-python3 run_capture_pipeline.py \
+./run_capture_pipeline.sh \
   --label negative \
   --training-profile quick
 ```
@@ -119,7 +126,7 @@ python3 run_capture_pipeline.py \
 Optional stream logs:
 
 ```bash
-python3 run_capture_pipeline.py \
+./run_capture_pipeline.sh \
   --label positive \
   --training-profile quick \
   --reader-stream-logs \
@@ -147,6 +154,11 @@ After training a model, run calibration and generate runtime config in one comma
 ./run_prepare_infer_pipeline.sh --help
 ```
 
+`--criterion` controls how the threshold is selected during calibration:
+- `f1`: best balance of precision/recall.
+- `target_recall`: highest threshold that still meets recall target (fewer misses).
+- `target_precision`: lowest threshold that still meets precision target (fewer false alarms).
+
 By default, this helper uses `artifacts/models/cnn_simple/best_model.pt` for `--model` and `artifacts/training-sessions` for `--training-sessions-dir`; dataset auto-build runs only when session folders are found under `artifacts/training-sessions`.
 
 This helper runs `train_cnn1d.py` each time before threshold calibration. Use `--skip-train` to reuse an existing model checkpoint at `--model`.
@@ -160,10 +172,10 @@ This helper does **not** start live inference; it prepares `threshold_report.jso
 Use this to launch reader + decimator + live inference together:
 
 ```bash
-python3 run_infer_pipeline.py
+./run_infer_pipeline.sh
 
 # Optional: enable reader/decimator/infer stream logs
-python3 run_infer_pipeline.py \
+./run_infer_pipeline.sh \
   --reader-stream-logs \
   --decimator-stream-logs \
   --infer-stream-logs
@@ -176,19 +188,19 @@ Use this section when you want to run individual apps manually.
 ### A. Start the Airspy HF+ Reader
 
 ```bash
-python3 airspy_hf_reader.py -c capture_config.json
+python3 submodules/AirspyTools/airspy_hf_reader.py -c capture_config.json
 
 # Optional: periodic reader progress logs
-python3 airspy_hf_reader.py -c capture_config.json --stream-logs
+python3 submodules/AirspyTools/airspy_hf_reader.py -c capture_config.json --stream-logs
 ```
 
 ### B. Start the Decimator
 
 ```bash
-python3 decimator.py -c capture_config.json -o 5556
+python3 submodules/AirspyTools/decimator.py -c capture_config.json -o 5556
 
 # Optional: periodic decimator progress logs
-python3 decimator.py -c capture_config.json -o 5556 --stream-logs
+python3 submodules/AirspyTools/decimator.py -c capture_config.json -o 5556 --stream-logs
 ```
 
 This decimates the 768 kHz stream by 384x (to 2 kHz) and publishes it on port 5556.
@@ -298,7 +310,7 @@ python3 infer_cnn1d.py \
 ```
 
 Detection lines are printed as:
-- `DETECT t=<seconds> prob=<smoothed_prob> (raw=<raw_prob>, seq=<message_seq>)`
+- `DETECT t=<seconds> prob=<smoothed_prob> (raw=<raw_prob>, snr_db=<snr_db>, seq=<message_seq>)`
 
 Or use calibrated runtime config:
 
@@ -352,10 +364,10 @@ The Airspy HF+ supports these sample rates (Hz):
 
 ## Command-Line Options
 
-### airspy_hf_reader.py
+### submodules/AirspyTools/airspy_hf_reader.py
 
 ```bash
-python3 airspy_hf_reader.py -c capture_config.json [options]
+python3 submodules/AirspyTools/airspy_hf_reader.py -c capture_config.json [options]
 
 Options:
   -c, --config FILE         JSON configuration file
@@ -368,10 +380,10 @@ Options:
   --stream-logs            Enable periodic status logs while streaming (default: off)
 ```
 
-### decimator.py
+### submodules/AirspyTools/decimator.py
 
 ```bash
-python3 decimator.py -c capture_config.json [options]
+python3 submodules/AirspyTools/decimator.py -c capture_config.json [options]
 
 Options:
   -c, --config FILE         JSON configuration file (default: capture_config.json)
@@ -433,7 +445,7 @@ Options:
 ### run_capture_pipeline.py
 
 ```bash
-python3 run_capture_pipeline.py [options]
+./run_capture_pipeline.sh [options]
 
 Options:
   -c, --config FILE         JSON config file (default: capture_config.json)
@@ -457,7 +469,7 @@ Options:
 ### run_infer_pipeline.py
 
 ```bash
-python3 run_infer_pipeline.py [options]
+./run_infer_pipeline.sh [options]
 
 Options:
   -c, --config FILE         JSON config file (default: capture_config.json)

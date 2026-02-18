@@ -9,6 +9,7 @@ Input stream format (from decimator):
 
 import argparse
 import json
+import math
 import signal
 import sys
 import time
@@ -21,7 +22,7 @@ import torch
 import torch.nn as nn
 import zmq
 
-from config import PulseDetectConfig
+from submodules.AirspyTools.airspy_tools_config import AirspyToolsConfig
 
 
 DEFAULT_MODEL_PATH = "artifacts/models/cnn_simple/best_model.pt"
@@ -83,7 +84,7 @@ def select_device(device_arg: str) -> torch.device:
 class LiveInfer:
     def __init__(
         self,
-        config: PulseDetectConfig,
+        config: AirspyToolsConfig,
         model_path: Path,
         host: str,
         port: int,
@@ -191,6 +192,13 @@ class LiveInfer:
             prob = torch.sigmoid(logits)[0].item()
         return float(prob)
 
+    def _estimate_snr_db(self, iq_window: np.ndarray) -> float:
+        power = np.abs(iq_window).astype(np.float32) ** 2
+        noise_power = float(np.median(power))
+        signal_power = float(np.percentile(power, 95.0))
+        eps = 1e-12
+        return 10.0 * math.log10((signal_power + eps) / (noise_power + eps))
+
     def run(self) -> int:
         self.load_model()
         self.setup_zmq()
@@ -208,6 +216,8 @@ class LiveInfer:
         start = time.time()
         try:
             while self.running:
+                if self.socket is None:
+                    raise RuntimeError("ZeroMQ socket not initialized")
                 message = self.socket.recv()
                 self.message_count += 1
 
@@ -236,9 +246,10 @@ class LiveInfer:
                     if prob_smooth >= self.threshold and since_last >= self.cooldown_samples:
                         self.last_detection_sample = center_index
                         t_sec = center_index / self.sample_rate_hz
+                        snr_db = self._estimate_snr_db(window)
                         print(
                             f"DETECT t={t_sec:9.3f}s prob={prob_smooth:.3f} "
-                            f"(raw={prob:.3f}, seq={seq})"
+                            f"(raw={prob:.3f}, snr_db={snr_db:.1f}, seq={seq})"
                         )
 
                     self.next_window_start += self.hop_samples
@@ -299,8 +310,19 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
+    training_meta = {}
     try:
-        config = PulseDetectConfig.from_file(args.config)
+        with Path(args.config).open("r") as handle:
+            raw_config = json.load(handle)
+        if isinstance(raw_config, dict):
+            value = raw_config.get("training", {})
+            if isinstance(value, dict):
+                training_meta = value
+    except Exception:
+        training_meta = {}
+
+    try:
+        config = AirspyToolsConfig.from_file(args.config)
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -362,6 +384,12 @@ def main() -> int:
         }
         with Path(args.dump_config).open("w") as handle:
             json.dump(resolved, handle, indent=2)
+
+    criterion = training_meta.get("last_threshold_criterion")
+    if criterion:
+        prepared_utc = training_meta.get("last_prepared_utc")
+        detail = f" (prepared={prepared_utc})" if prepared_utc else ""
+        print(f"Calibration criterion from config: {criterion}{detail}")
 
     app = LiveInfer(
         config=config,

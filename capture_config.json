@@ -17,5 +17,11 @@
   "tag": {
     "pulse_width_ms": 15,
     "pulse_period_ms": 2000
+  },
+  "training": {
+    "last_threshold_criterion": "target_recall",
+    "last_threshold_report": "artifacts/models/cnn_simple/threshold_report.json",
+    "last_runtime_config": "artifacts/models/cnn_simple/infer_runtime.json",
+    "last_prepared_utc": "2026-02-18T02:38:44.466839+00:00"
   }
 }

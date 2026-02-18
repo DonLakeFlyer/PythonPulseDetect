@@ -42,6 +42,9 @@ echo ""
 echo "Activating virtual environment..."
 source venv/bin/activate
 
+echo "Ensuring git submodules are initialized..."
+git submodule update --init --recursive
+
 echo "Upgrading pip..."
 pip install --upgrade pip --quiet
 

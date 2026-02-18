@@ -15,7 +15,7 @@ import time
 from typing import Optional, Tuple
 import json
 
-from config import PulseDetectConfig
+from submodules.AirspyTools.airspy_tools_config import AirspyToolsConfig
 
 
 class FoldingEngine:
@@ -158,7 +158,7 @@ class FoldingEngine:
 class PulseDetector:
     """Main pulse detector application."""
 
-    def __init__(self, config: PulseDetectConfig, n_bins: int = 256,
+    def __init__(self, config: AirspyToolsConfig, n_bins: int = 256,
                  decimated_sample_rate: Optional[int] = None,
                  folds_per_integration: int = 5,
                  display_mode: str = 'snr'):
@@ -166,7 +166,7 @@ class PulseDetector:
         Initialize the pulse detector.
 
         Args:
-            config: PulseDetectConfig instance
+            config: AirspyToolsConfig instance
             n_bins: Number of phase bins per fold
             decimated_sample_rate: Sample rate after decimation (if None, uses config sample rate)
             folds_per_integration: Number of folds to integrate before outputting results (default: 5)
@@ -236,6 +236,8 @@ class PulseDetector:
             while self.running:
                 try:
                     # Receive message from ZeroMQ
+                    if self.zmq_socket is None:
+                        raise RuntimeError("ZeroMQ socket not initialized")
                     message = self.zmq_socket.recv()
 
                     # Parse message: 8-byte sequence number + sample data
@@ -496,7 +498,7 @@ def main():
 
     # Load configuration
     try:
-        config = PulseDetectConfig.from_file(args.config)
+        config = AirspyToolsConfig.from_file(args.config)
         print(f"Loaded configuration from {args.config}\n")
     except Exception as e:
         print(f"Error loading config file: {e}")

@@ -3,8 +3,8 @@
 Run the full reader -> decimator -> inference pipeline.
 
 This script launches:
-  1) airspy_hf_reader.py
-  2) decimator.py
+    1) submodules/AirspyTools/airspy_hf_reader.py
+    2) submodules/AirspyTools/decimator.py
   3) infer_cnn1d.py
 
 When inference exits (for example, Ctrl+C), this script gracefully shuts down
@@ -67,7 +67,7 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         type=int,
         default=[8, 8, 6],
-        help="Decimator stages passed to decimator.py --stages",
+        help="Decimator stages passed to submodule decimator --stages",
     )
     parser.add_argument(
         "--decimator-stream-logs",
@@ -94,12 +94,13 @@ def parse_args() -> argparse.Namespace:
 
 def build_cmd(base_dir: Path, args: argparse.Namespace):
     python_exe = sys.executable
+    tools_dir = base_dir / "submodules" / "AirspyTools"
 
-    reader_cmd = [python_exe, "-u", str(base_dir / "airspy_hf_reader.py"), "-c", args.config]
+    reader_cmd = [python_exe, "-u", str(tools_dir / "airspy_hf_reader.py"), "-c", args.config]
     if args.reader_stream_logs:
         reader_cmd.append("--stream-logs")
 
-    decimator_cmd = [python_exe, "-u", str(base_dir / "decimator.py"), "-c", args.config, "--stages"]
+    decimator_cmd = [python_exe, "-u", str(tools_dir / "decimator.py"), "-c", args.config, "--stages"]
     decimator_cmd.extend(str(s) for s in args.decimator_stages)
     if args.decimator_stream_logs:
         decimator_cmd.append("--stream-logs")
@@ -218,10 +219,17 @@ def stop_process(proc: Optional[subprocess.Popen], name: str, timeout_sec: float
 def main() -> int:
     args = parse_args()
     base_dir = Path(__file__).resolve().parent
+    tools_dir = base_dir / "submodules" / "AirspyTools"
 
     config_path = Path(args.config)
     if not config_path.exists():
         print(f"Error: config file not found: {config_path}", file=sys.stderr)
+        return 1
+    if not (tools_dir / "airspy_hf_reader.py").exists() or not (tools_dir / "decimator.py").exists():
+        print(
+            "Error: AirspyTools submodule scripts not found. Run: git submodule update --init --recursive",
+            file=sys.stderr,
+        )
         return 1
 
     reader_cmd, decimator_cmd, infer_cmd = build_cmd(base_dir, args)

@@ -14,13 +14,13 @@ import time
 from typing import Optional, List, Tuple
 from collections import deque
 
-from config import PulseDetectConfig
+from submodules.AirspyTools.airspy_tools_config import AirspyToolsConfig
 
 
 class PulseAnalyzer:
     """Analyzes individual pulses in IQ data stream."""
 
-    def __init__(self, config: PulseDetectConfig,
+    def __init__(self, config: AirspyToolsConfig,
                  decimated_sample_rate: Optional[int] = None,
                  threshold_sigma: float = 3.0,
                  history_size: int = 100):
@@ -28,7 +28,7 @@ class PulseAnalyzer:
         Initialize the pulse analyzer.
 
         Args:
-            config: PulseDetectConfig instance
+            config: AirspyToolsConfig instance
             decimated_sample_rate: Sample rate after decimation (if None, uses config)
             threshold_sigma: Detection threshold in standard deviations above noise
             history_size: Number of pulses to keep in history for statistics
@@ -282,6 +282,8 @@ class PulseAnalyzer:
             while self.running:
                 try:
                     # Receive message from ZeroMQ
+                    if self.zmq_socket is None:
+                        raise RuntimeError("ZeroMQ socket not initialized")
                     message = self.zmq_socket.recv()
 
                     # Parse message: 8-byte sequence number + sample data
@@ -404,7 +406,7 @@ def main():
 
     # Load configuration
     try:
-        config = PulseDetectConfig.from_file(args.config)
+        config = AirspyToolsConfig.from_file(args.config)
         print(f"Loaded configuration from {args.config}\n")
     except Exception as e:
         print(f"Error loading config file: {e}")

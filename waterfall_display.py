@@ -13,6 +13,7 @@ from collections import deque
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from scipy import signal as sp_signal
+from matplotlib.artist import Artist
 
 
 class WaterfallDisplay:
@@ -138,8 +139,8 @@ class WaterfallDisplay:
                 print("Warning: Non-finite values in input samples - sanitizing")
                 samples = np.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
 
-            # Create and validate window function
-            window = sp_signal.windows.hann(self.fft_size, sym=False)
+            # Create a periodic Hann window equivalent to scipy's sym=False
+            window = np.hanning(self.fft_size + 1)[:-1]
             window = np.asarray(window, dtype=np.float32)
 
             # Validate window
@@ -192,6 +193,9 @@ class WaterfallDisplay:
 
     def update_data(self):
         """Fetch new data from ZeroMQ and update buffers."""
+        if self.socket is None:
+            return
+
         # Process multiple messages per update to keep up with data rate
         messages_processed = 0
         max_messages_per_update = 10  # Process up to 10 messages per animation frame
@@ -261,7 +265,7 @@ class WaterfallDisplay:
             interpolation='nearest',
             vmin=-80,
             vmax=-20,
-            extent=[freq_min, freq_max, 0, time_span],
+            extent=(freq_min, freq_max, 0.0, float(time_span)),
             origin='lower'  # Time increases upward
         )
 
@@ -278,7 +282,7 @@ class WaterfallDisplay:
 
         plt.tight_layout()
 
-    def animate(self, frame):
+    def animate(self, frame) -> list[Artist]:
         """
         Animation update function.
 
@@ -290,6 +294,9 @@ class WaterfallDisplay:
         """
         # Update data
         self.update_data()
+
+        if self.im is None or self.ax is None:
+            return []
 
         # Convert deque to numpy array
         if len(self.waterfall_data) > 0:
@@ -320,6 +327,9 @@ class WaterfallDisplay:
         try:
             self.connect()
             self.init_plot()
+
+            if self.fig is None:
+                raise RuntimeError("Matplotlib figure not initialized")
 
             # Create animation
             anim = animation.FuncAnimation(
